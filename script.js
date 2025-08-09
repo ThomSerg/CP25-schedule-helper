@@ -154,10 +154,52 @@ class ConferenceSchedulePlanner {
         
         this.loadSelections(this.currentScheduleId);
         document.getElementById('currentScheduleTitle').textContent = schedule.name;
+        
+        // Restore Date objects from localStorage strings
+        this.restoreDateObjects(schedule.data);
+        
         this.enrichWithDateTimes(schedule.data);
         this.renderTimeline(schedule.data);
         this.updateMySchedule();
         this.updateTalkStates();
+    }
+
+    restoreDateObjects(scheduleData) {
+        console.log('Restoring Date objects from localStorage...');
+        
+        scheduleData.forEach(day => {
+            // Restore day.date if it's a string
+            if (day.date && typeof day.date === 'string') {
+                day.date = new Date(day.date);
+                console.log(`Restored day.date for ${day.day}:`, day.date);
+            }
+            
+            // Restore datetime objects for all talks
+            day.timeSlots.forEach(slot => {
+                if (slot.isPeriodSeparator) return;
+                
+                slot.events.forEach(event => {
+                    event.talks.forEach(talk => {
+                        // Restore startDateTime and endDateTime
+                        if (talk.startDateTime && typeof talk.startDateTime === 'string') {
+                            talk.startDateTime = new Date(talk.startDateTime);
+                        }
+                        if (talk.endDateTime && typeof talk.endDateTime === 'string') {
+                            talk.endDateTime = new Date(talk.endDateTime);
+                        }
+                        if (talk.dayDate && typeof talk.dayDate === 'string') {
+                            talk.dayDate = new Date(talk.dayDate);
+                        }
+                        
+                        if (talk.startDateTime) {
+                            console.log(`Restored datetime for talk: ${talk.title} | ${talk.startDateTime.toLocaleString()}`);
+                        }
+                    });
+                });
+            });
+        });
+        
+        console.log('Date object restoration complete');
     }
 
     enrichWithDateTimes(scheduleData) {
@@ -965,28 +1007,94 @@ class ConferenceSchedulePlanner {
             ${conflicts > 0 ? `• <span style="color: #dc3545;">${conflicts} conflicts</span>` : '• <span style="color: #28a745;">No conflicts</span>'}
         `;
         
-        // Group talks by day using dayId as primary key
+        // Group talks by actual date (not period-specific dayId)
         const talksByDay = {};
         selectedTalks.forEach(talk => {
             console.log('Grouping talk:', talk.title, 'dayId:', talk.dayId, 'dayDate:', talk.dayDate);
             
             let dayKey;
+            let baseDayName;
+            
+            // First try to extract the base day name (without morning/afternoon)
             if (talk.dayId) {
-                dayKey = talk.dayId;
-            } else if (talk.dayDate) {
-                dayKey = talk.dayDate.toDateString();
-            } else {
-                dayKey = 'unknown-day';
+                // Find the schedule data to get the original day name
+                const schedule = this.schedules.get(this.currentScheduleId);
+                if (schedule && schedule.data) {
+                    const dayInfo = schedule.data.find(day => day.dayId === talk.dayId);
+                    if (dayInfo && dayInfo.day) {
+                        console.log('Found dayInfo.day:', dayInfo.day);
+                        // Use the normalization function
+                        baseDayName = this.normalizeDayName(dayInfo.day);
+                        dayKey = baseDayName.toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+                        console.log('Normalized baseDayName:', baseDayName, 'dayKey:', dayKey);
+                    }
+                }
+            }
+            
+            // Fallback to date-based grouping
+            if (!dayKey) {
+                if (talk.dayDate) {
+                    // Use a consistent date-based key
+                    dayKey = `date-${talk.dayDate.getFullYear()}-${talk.dayDate.getMonth()}-${talk.dayDate.getDate()}`;
+                    baseDayName = talk.dayDate.toLocaleDateString('en-US', { 
+                        weekday: 'long', 
+                        month: 'long', 
+                        day: 'numeric' 
+                    });
+                    console.log('Using date-based grouping:', dayKey, baseDayName);
+                } else if (talk.dayId) {
+                    // Last resort: use dayId but try to clean it up
+                    baseDayName = talk.dayId.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    dayKey = talk.dayId.replace(/[^\w-]/g, '');
+                    console.log('Using dayId fallback:', dayKey, baseDayName);
+                } else {
+                    dayKey = 'unknown-day';
+                    baseDayName = 'Unknown Day';
+                    console.log('Using unknown day fallback');
+                }
             }
             
             if (!talksByDay[dayKey]) {
                 talksByDay[dayKey] = {
                     talks: [],
-                    displayName: this.getDayDisplayName(talk),
-                    date: talk.dayDate
+                    displayName: baseDayName,
+                    date: talk.dayDate,
+                    originalDayIds: new Set()
                 };
             }
+            
+            // Track which original dayIds are included in this merged day
+            if (talk.dayId) {
+                talksByDay[dayKey].originalDayIds.add(talk.dayId);
+            }
+            
             talksByDay[dayKey].talks.push(talk);
+        });
+        
+        // Debug: Show all day keys we ended up with
+        console.log('Final day groups:', Object.keys(talksByDay));
+        Object.entries(talksByDay).forEach(([key, data]) => {
+            console.log(`Day key "${key}" -> Display: "${data.displayName}" -> ${data.talks.length} talks`);
+        });
+        
+        // Sort talks within each day chronologically
+        Object.values(talksByDay).forEach(dayData => {
+            dayData.talks.sort((a, b) => {
+                // First sort by datetime if available
+                if (a.startDateTime && b.startDateTime) {
+                    return a.startDateTime - b.startDateTime;
+                }
+                
+                // If no datetime, try to sort by time string
+                const aTime = this.parseTimeRange(a.time);
+                const bTime = this.parseTimeRange(b.time);
+                if (aTime && bTime) {
+                    return aTime.start - bTime.start;
+                }
+                
+                // Keep original order if can't sort by time
+                return 0;
+            });
         });
         
         // Generate HTML
@@ -1263,6 +1371,25 @@ class ConferenceSchedulePlanner {
         }
         
         return 'Unknown Day';
+    }
+
+    normalizeDayName(dayName) {
+        if (!dayName) return '';
+        
+        // Remove common separators and special characters
+        return dayName
+            .split(' –')[0]      // En-dash with spaces
+            .split('–')[0]       // En-dash without spaces
+            .split(' -')[0]      // Hyphen with spaces
+            .split('-')[0]       // Hyphen without spaces  
+            .split(' •')[0]      // Bullet with spaces
+            .split('•')[0]       // Bullet without spaces
+            .split('◀')[0]       // Left arrow
+            .split('▶')[0]       // Right arrow
+            .split('←')[0]       // Left arrow
+            .split('→')[0]       // Right arrow
+            .replace(/\s+/g, ' ') // Normalize whitespace
+            .trim();
     }
 
     addCurrentTimeIndicator() {
