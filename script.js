@@ -48,35 +48,8 @@ class ConferenceSchedulePlanner {
     }
 
     attachSharingListeners() {
-        // Try to attach sharing event listeners with error handling
-        try {
-            const shareBtn = document.getElementById('shareBtn');
-            const exportBtn = document.getElementById('exportBtn');
-            const importBtn = document.getElementById('importScheduleBtn');
-            
-            if (shareBtn) {
-                shareBtn.addEventListener('click', () => this.shareSchedule());
-                console.log('Share button listener attached');
-            } else {
-                console.warn('Share button not found');
-            }
-            
-            if (exportBtn) {
-                exportBtn.addEventListener('click', () => this.exportSchedule());
-                console.log('Export button listener attached');
-            } else {
-                console.warn('Export button not found');
-            }
-            
-            if (importBtn) {
-                importBtn.addEventListener('click', () => this.importScheduleFromFile());
-                console.log('Import schedule button listener attached');
-            } else {
-                console.warn('Import schedule button not found');
-            }
-        } catch (error) {
-            console.error('Error attaching sharing listeners:', error);
-        }
+        // Skip if using inline onclick handlers
+        return;
     }
 
     loadSchedules() {
@@ -200,6 +173,23 @@ class ConferenceSchedulePlanner {
         this.renderTimeline(schedule.data);
         this.updateMySchedule();
         this.updateTalkStates();
+        
+        // Check for pending shared schedule
+        this.checkPendingSharedSchedule();
+    }
+
+    checkPendingSharedSchedule() {
+        const pendingData = sessionStorage.getItem('pendingSharedSchedule');
+        if (pendingData) {
+            try {
+                const scheduleData = JSON.parse(pendingData);
+                console.log('Found pending shared schedule, importing now...');
+                this.importSharedSchedule(scheduleData);
+            } catch (error) {
+                console.error('Error loading pending shared schedule:', error);
+                sessionStorage.removeItem('pendingSharedSchedule');
+            }
+        }
     }
 
     restoreDateObjects(scheduleData) {
@@ -1953,13 +1943,27 @@ class ConferenceSchedulePlanner {
     }
 
     checkForSharedSchedule() {
+        console.log('Checking for shared schedule in URL...');
         const urlParams = new URLSearchParams(window.location.search);
         const sharedData = urlParams.get('schedule');
         
+        console.log('URL params:', window.location.search);
+        console.log('Shared data found:', !!sharedData);
+        
         if (sharedData) {
+            console.log('Processing shared schedule data...');
             try {
                 const decodedData = this.decodeSharedSchedule(sharedData);
-                this.importSharedSchedule(decodedData);
+                console.log('Decoded data:', decodedData);
+                
+                // Show a message to let user know we're importing
+                this.showStatus('Loading shared schedule...', 'info');
+                
+                // Delay import to let the app initialize first
+                setTimeout(() => {
+                    this.importSharedSchedule(decodedData);
+                }, 1000);
+                
             } catch (error) {
                 console.error('Error loading shared schedule:', error);
                 this.showStatus('Invalid or corrupted shared schedule link', 'error');
@@ -1969,33 +1973,45 @@ class ConferenceSchedulePlanner {
 
     decodeSharedSchedule(encodedData) {
         try {
-            // Try to decode base64 and decompress
-            const compressed = atob(encodedData);
+            // Try to decode base64 and decompress with UTF-8 support
+            const compressed = this.decodeBase64UTF8(encodedData);
             const decompressed = this.decompress(compressed);
             return JSON.parse(decompressed);
         } catch (error) {
             console.error('Decoding failed, trying fallback:', error);
             try {
                 // Fallback: try simple base64 decode without decompression
-                const decoded = atob(encodedData);
+                const decoded = this.decodeBase64UTF8(encodedData);
                 return JSON.parse(decoded);
             } catch (fallbackError) {
                 console.error('Fallback decoding also failed:', fallbackError);
-                throw new Error('Unable to decode shared schedule data');
+                try {
+                    // Last resort: try old btoa method for backward compatibility
+                    const decoded = atob(encodedData);
+                    return JSON.parse(decoded);
+                } catch (lastError) {
+                    console.error('All decoding methods failed:', lastError);
+                    throw new Error('Unable to decode shared schedule data');
+                }
             }
         }
     }
 
     encodeSharedSchedule(data) {
         try {
-            // Compress and encode to base64
+            // Compress and encode to base64 with UTF-8 support
             const jsonString = JSON.stringify(data);
             const compressed = this.compress(jsonString);
-            return btoa(compressed);
+            return this.encodeBase64UTF8(compressed);
         } catch (error) {
             console.error('Encoding failed:', error);
-            // Fallback to simple base64 encoding without compression
-            return btoa(JSON.stringify(data));
+            try {
+                // Fallback to simple base64 encoding without compression
+                return this.encodeBase64UTF8(JSON.stringify(data));
+            } catch (fallbackError) {
+                console.error('Fallback encoding also failed:', fallbackError);
+                throw new Error('Unable to encode schedule data');
+            }
         }
     }
 
@@ -2032,10 +2048,58 @@ class ConferenceSchedulePlanner {
             .replace(/,"e"/g, ',"endDateTime"');
     }
 
+    // UTF-8 safe base64 encoding
+    encodeBase64UTF8(str) {
+        try {
+            // Convert string to UTF-8 bytes, then to base64
+            return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (match, p1) => {
+                return String.fromCharCode(parseInt(p1, 16));
+            }));
+        } catch (error) {
+            console.error('UTF-8 encoding failed:', error);
+            // Fallback: remove problematic characters and try again
+            const cleanStr = str.replace(/[^\x00-\x7F]/g, ''); // Remove non-ASCII
+            return btoa(cleanStr);
+        }
+    }
+
+    // UTF-8 safe base64 decoding
+    decodeBase64UTF8(str) {
+        try {
+            // Decode from base64, then convert from UTF-8 bytes to string
+            return decodeURIComponent(atob(str).split('').map(c => {
+                return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+            }).join(''));
+        } catch (error) {
+            console.error('UTF-8 decoding failed:', error);
+            // Fallback to simple atob
+            return atob(str);
+        }
+    }
+
     shareSchedule() {
-        if (!this.currentScheduleId || this.selectedTalks.size === 0) {
-            this.showStatus('No schedule or talks selected to share', 'error');
+        console.log('shareSchedule method called');
+        console.log('currentScheduleId:', this.currentScheduleId);
+        console.log('selectedTalks size:', this.selectedTalks.size);
+        
+        // Prevent multiple calls
+        if (this.isSharing) {
+            console.log('Share already in progress, ignoring');
             return;
+        }
+        
+        this.isSharing = true;
+        
+        try {
+            if (!this.currentScheduleId || this.selectedTalks.size === 0) {
+                this.showStatus('No schedule or talks selected to share', 'error');
+                return;
+            }
+        } finally {
+            // Reset flag after a delay
+            setTimeout(() => {
+                this.isSharing = false;
+            }, 500);
         }
 
         const schedule = this.schedules.get(this.currentScheduleId);
@@ -2197,37 +2261,55 @@ class ConferenceSchedulePlanner {
     }
 
     exportSchedule() {
-        if (!this.currentScheduleId || this.selectedTalks.size === 0) {
-            this.showStatus('No schedule or talks selected to export', 'error');
+        console.log('exportSchedule method called');
+        
+        // Prevent multiple calls
+        if (this.isExporting) {
+            console.log('Export already in progress, ignoring');
             return;
         }
+        
+        this.isExporting = true;
+        
+        try {
+            if (!this.currentScheduleId || this.selectedTalks.size === 0) {
+                this.showStatus('No schedule or talks selected to export', 'error');
+                return;
+            }
 
-        const schedule = this.schedules.get(this.currentScheduleId);
-        const selectedTalks = Array.from(this.selectedTalks)
-            .map(id => this.findTalkById(id))
-            .filter(talk => talk);
+            const schedule = this.schedules.get(this.currentScheduleId);
+            const selectedTalks = Array.from(this.selectedTalks)
+                .map(id => this.findTalkById(id))
+                .filter(talk => talk);
 
-        const exportData = {
-            scheduleName: schedule.name,
-            exportedAt: new Date().toISOString(),
-            talks: selectedTalks.map(talk => ({
-                id: talk.id,
-                title: talk.title,
-                authors: talk.authors || '',
-                time: talk.time,
-                track: talk.track,
-                location: talk.location,
-                dayId: talk.dayId,
-                startDateTime: talk.startDateTime ? talk.startDateTime.toISOString() : null,
-                endDateTime: talk.endDateTime ? talk.endDateTime.toISOString() : null
-            }))
-        };
+            const exportData = {
+                scheduleName: schedule.name,
+                exportedAt: new Date().toISOString(),
+                talks: selectedTalks.map(talk => ({
+                    id: talk.id,
+                    title: talk.title,
+                    authors: talk.authors || '',
+                    time: talk.time,
+                    track: talk.track,
+                    location: talk.location,
+                    dayId: talk.dayId,
+                    startDateTime: talk.startDateTime ? talk.startDateTime.toISOString() : null,
+                    endDateTime: talk.endDateTime ? talk.endDateTime.toISOString() : null
+                }))
+            };
 
-        this.downloadScheduleFile(exportData);
-        this.showStatus(`Exported ${selectedTalks.length} talks to file`, 'success');
+            this.downloadScheduleFile(exportData);
+            this.showStatus(`Exported ${selectedTalks.length} talks to file`, 'success');
+        } finally {
+            // Reset flag after a delay
+            setTimeout(() => {
+                this.isExporting = false;
+            }, 1000);
+        }
     }
 
     importScheduleFromFile() {
+        console.log('importScheduleFromFile method called');
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = '.json';
@@ -2251,14 +2333,19 @@ class ConferenceSchedulePlanner {
     }
 
     importSharedSchedule(scheduleData) {
+        console.log('Importing shared schedule:', scheduleData);
+        
         if (!scheduleData || !scheduleData.talks || !Array.isArray(scheduleData.talks)) {
             this.showStatus('Invalid schedule data format', 'error');
             return;
         }
 
-        // Check if we have a current schedule to import into
+        // If no current schedule, show message and instructions
         if (!this.currentScheduleId) {
-            this.showStatus('Please select or create a schedule first before importing talks', 'error');
+            this.showStatus(`Found shared schedule "${scheduleData.scheduleName}" with ${scheduleData.talks.length} talks. Please create/select a schedule first, then re-open this link.`, 'warning');
+            
+            // Store the shared data for later use
+            sessionStorage.setItem('pendingSharedSchedule', JSON.stringify(scheduleData));
             return;
         }
 
@@ -2295,7 +2382,7 @@ class ConferenceSchedulePlanner {
             this.checkConflicts();
             this.updateMySchedule();
             
-            let message = `Imported ${matchedTalks} talks`;
+            let message = `Imported ${matchedTalks} talks from "${scheduleData.scheduleName}"`;
             if (unmatchedTalks > 0) {
                 message += ` (${unmatchedTalks} talks could not be matched in current schedule)`;
             }
@@ -2303,8 +2390,11 @@ class ConferenceSchedulePlanner {
             
             // Switch to schedule view
             this.switchTab('schedule');
+            
+            // Clear any pending shared schedule
+            sessionStorage.removeItem('pendingSharedSchedule');
         } else {
-            this.showStatus('No matching talks found in current schedule', 'error');
+            this.showStatus(`No matching talks found in current schedule for "${scheduleData.scheduleName}". Make sure you have the same conference schedule loaded.`, 'error');
         }
     }
 
@@ -2344,5 +2434,5 @@ class ConferenceSchedulePlanner {
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', () => {
-    new ConferenceSchedulePlanner();
+    window.planner = new ConferenceSchedulePlanner();
 });

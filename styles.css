@@ -197,6 +197,18 @@ button:disabled {
     border: 1px solid #f5c6cb;
 }
 
+.status-info {
+    background-color: #d1ecf1;
+    color: #0c5460;
+    border: 1px solid #b8daff;
+}
+
+.status-warning {
+    background-color: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeaa7;
+}
+
 /* Current Talk Bar */
 .current-talk-bar {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
