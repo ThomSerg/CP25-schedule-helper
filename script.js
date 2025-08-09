@@ -189,10 +189,15 @@ class ConferenceSchedulePlanner {
                             talk.startDateTime = startDateTime;
                             talk.endDateTime = endDateTime;
                             talk.dayDate = day.date;
+                            // Ensure dayId is set correctly
+                            talk.dayId = day.dayId;
                             
-                            console.log(`Enriched talk: ${talk.title} | ${talk.time} -> ${startDateTime.toLocaleString()} to ${endDateTime.toLocaleString()}`);
+                            console.log(`Enriched talk: ${talk.title} | Day: ${talk.dayId} | ${talk.time} -> ${startDateTime.toLocaleString()} to ${endDateTime.toLocaleString()}`);
                         } else {
-                            console.log(`Could not enrich talk: ${talk.title} | Time: ${talk.time} | TimeRange: ${timeRange ? 'OK' : 'FAILED'} | Day Date: ${day.date ? 'OK' : 'FAILED'}`);
+                            // Still set dayId even if datetime enrichment fails
+                            talk.dayDate = day.date;
+                            talk.dayId = day.dayId;
+                            console.log(`Could not enrich talk: ${talk.title} | Day: ${talk.dayId} | Time: ${talk.time} | TimeRange: ${timeRange ? 'OK' : 'FAILED'} | Day Date: ${day.date ? 'OK' : 'FAILED'}`);
                         }
                     });
                 });
@@ -960,63 +965,48 @@ class ConferenceSchedulePlanner {
             ${conflicts > 0 ? `• <span style="color: #dc3545;">${conflicts} conflicts</span>` : '• <span style="color: #28a745;">No conflicts</span>'}
         `;
         
-        // Group talks by day
+        // Group talks by day using dayId as primary key
         const talksByDay = {};
         selectedTalks.forEach(talk => {
+            console.log('Grouping talk:', talk.title, 'dayId:', talk.dayId, 'dayDate:', talk.dayDate);
+            
             let dayKey;
-            if (talk.dayDate) {
+            if (talk.dayId) {
+                dayKey = talk.dayId;
+            } else if (talk.dayDate) {
                 dayKey = talk.dayDate.toDateString();
-            } else if (talk.dayId) {
-                // Use dayId as fallback if no date available
-                dayKey = talk.dayId.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
             } else {
-                dayKey = 'Unknown Day';
+                dayKey = 'unknown-day';
             }
             
             if (!talksByDay[dayKey]) {
-                talksByDay[dayKey] = [];
+                talksByDay[dayKey] = {
+                    talks: [],
+                    displayName: this.getDayDisplayName(talk),
+                    date: talk.dayDate
+                };
             }
-            talksByDay[dayKey].push(talk);
+            talksByDay[dayKey].talks.push(talk);
         });
         
         // Generate HTML
         container.innerHTML = '';
         
-        Object.entries(talksByDay).forEach(([dayKey, dayTalks]) => {
+        Object.entries(talksByDay).forEach(([dayKey, dayData]) => {
             const dayGroup = document.createElement('div');
             dayGroup.className = 'schedule-day-group';
             
             // Day header
             const dayHeader = document.createElement('div');
             dayHeader.className = 'schedule-day-header';
-            
-            let displayName;
-            if (dayKey === 'Unknown Day') {
-                displayName = dayKey;
-            } else if (dayKey.includes(' ')) {
-                // It's already a formatted day name like "Sunday 10Th August"
-                displayName = dayKey;
-            } else {
-                // It's a date string, format it nicely
-                try {
-                    displayName = new Date(dayKey).toLocaleDateString('en-US', { 
-                        weekday: 'long', 
-                        month: 'long', 
-                        day: 'numeric' 
-                    });
-                } catch (e) {
-                    displayName = dayKey;
-                }
-            }
-            
-            dayHeader.textContent = displayName;
+            dayHeader.textContent = dayData.displayName;
             dayGroup.appendChild(dayHeader);
             
             // Talks container
             const talksContainer = document.createElement('div');
             talksContainer.className = 'schedule-talks';
             
-            dayTalks.forEach(talk => {
+            dayData.talks.forEach(talk => {
                 const talkElement = this.createMyScheduleTalk(talk);
                 talksContainer.appendChild(talkElement);
             });
@@ -1168,6 +1158,39 @@ class ConferenceSchedulePlanner {
                 }, 3000);
             }
         }, 100);
+    }
+
+    getDayDisplayName(talk) {
+        // First try to get the original day name from the schedule data
+        if (this.currentScheduleId) {
+            const schedule = this.schedules.get(this.currentScheduleId);
+            if (schedule && schedule.data) {
+                const dayInfo = schedule.data.find(day => day.dayId === talk.dayId);
+                if (dayInfo && dayInfo.day) {
+                    return dayInfo.day;
+                }
+            }
+        }
+        
+        // Fallback to date formatting
+        if (talk.dayDate) {
+            try {
+                return talk.dayDate.toLocaleDateString('en-US', { 
+                    weekday: 'long', 
+                    month: 'long', 
+                    day: 'numeric' 
+                });
+            } catch (e) {
+                // Continue to next fallback
+            }
+        }
+        
+        // Fallback to dayId formatting
+        if (talk.dayId && talk.dayId !== 'unknown-day') {
+            return talk.dayId.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        }
+        
+        return 'Unknown Day';
     }
 
     addCurrentTimeIndicator() {
@@ -1337,8 +1360,11 @@ class ConferenceSchedulePlanner {
     }
 
     talksOverlap(talk1, talk2) {
+        console.log(`Checking conflict between "${talk1.title}" (day: ${talk1.dayId}) and "${talk2.title}" (day: ${talk2.dayId})`);
+        
         // First check if talks are on the same day
         if (talk1.dayId !== talk2.dayId) {
+            console.log('Different days - no conflict');
             return false; // Talks on different days cannot conflict
         }
         
