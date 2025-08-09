@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conference Schedule Planner</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Schedule Management -->
+        <div class="schedule-management">
+            <div class="schedule-header">
+                <h1>Conference Schedule Planner</h1>
+                <div class="schedule-controls">
+                    <select id="scheduleSelector">
+                        <option value="">Select a schedule...</option>
+                    </select>
+                    <button id="newScheduleBtn">+ New Schedule</button>
+                    <button id="deleteScheduleBtn" disabled>Delete Schedule</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Import Section -->
+        <div class="import-section" id="importSection" style="display: none;">
+            <h2>Create New Schedule</h2>
+            <div class="schedule-name-input">
+                <label for="scheduleName">Schedule Name:</label>
+                <input type="text" id="scheduleName" placeholder="e.g., CP 2025 Conference" />
+            </div>
+            <div class="import-methods">
+                <div class="import-method">
+                    <h3>Import from URL</h3>
+                    <div class="url-controls">
+                        <input type="url" id="scheduleURL" placeholder="https://conference.org/schedule.html" />
+                        <button id="downloadBtn">Download & Import</button>
+                    </div>
+                </div>
+                <div class="import-method">
+                    <h3>Import from File</h3>
+                    <div class="file-controls">
+                        <input type="file" id="htmlFile" accept=".html,.htm" />
+                        <button id="importBtn">Import Schedule</button>
+                    </div>
+                </div>
+            </div>
+            <div id="importStatus"></div>
+        </div>
+
+        <!-- Schedule View -->
+        <div id="scheduleView" style="display: none;">
+            <!-- Schedule Controls -->
+            <div class="schedule-view-header">
+                <h2 id="currentScheduleTitle">Schedule</h2>
+                <div class="view-controls">
+                    <button id="clearBtn">Clear All Selections</button>
+                    <button id="timelineToggle">Start Live Timeline</button>
+                </div>
+            </div>
+
+            <!-- Tab Navigation -->
+            <div class="tab-navigation">
+                <button class="tab-button active" data-tab="browse">Browse Schedule</button>
+                <button class="tab-button" data-tab="schedule">My Schedule</button>
+            </div>
+
+            <!-- Browse Schedule Tab -->
+            <div id="browseTab" class="tab-content active">
+                <!-- Timeline View -->
+                <div id="timelineContainer">
+                    <div class="timeline-header">
+                        <div class="day-tabs" id="dayTabs"></div>
+                    </div>
+                    <div class="timeline-content" id="timelineContent"></div>
+                </div>
+
+                <!-- Conflicts Display -->
+                <div id="conflictsSection" style="display: none;">
+                    <h3>⚠️ Schedule Conflicts</h3>
+                    <div id="conflictsList"></div>
+                </div>
+            </div>
+
+            <!-- My Schedule Tab -->
+            <div id="scheduleTab" class="tab-content">
+                <div id="myScheduleContainer">
+                    <div class="my-schedule-header">
+                        <h3>My Selected Talks</h3>
+                        <div class="schedule-stats" id="scheduleStats"></div>
+                    </div>
+                    <div class="my-schedule-timeline" id="myScheduleTimeline">
+                        <div class="no-selections" id="noSelections">
+                            <p>No talks selected yet. Go to "Browse Schedule" tab to select talks.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
