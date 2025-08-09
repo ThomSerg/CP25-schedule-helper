@@ -989,11 +989,27 @@ class ConferenceSchedulePlanner {
             // Day header
             const dayHeader = document.createElement('div');
             dayHeader.className = 'schedule-day-header';
-            dayHeader.textContent = dayKey === 'Unknown Day' ? dayKey : new Date(dayKey).toLocaleDateString('en-US', { 
-                weekday: 'long', 
-                month: 'long', 
-                day: 'numeric' 
-            });
+            
+            let displayName;
+            if (dayKey === 'Unknown Day') {
+                displayName = dayKey;
+            } else if (dayKey.includes(' ')) {
+                // It's already a formatted day name like "Sunday 10Th August"
+                displayName = dayKey;
+            } else {
+                // It's a date string, format it nicely
+                try {
+                    displayName = new Date(dayKey).toLocaleDateString('en-US', { 
+                        weekday: 'long', 
+                        month: 'long', 
+                        day: 'numeric' 
+                    });
+                } catch (e) {
+                    displayName = dayKey;
+                }
+            }
+            
+            dayHeader.textContent = displayName;
             dayGroup.appendChild(dayHeader);
             
             // Talks container
@@ -1100,9 +1116,20 @@ class ConferenceSchedulePlanner {
             status.textContent = 'SCHEDULED';
         }
         
+        // Navigation button to go back to original location
+        const navButton = document.createElement('button');
+        navButton.className = 'talk-nav-button';
+        navButton.textContent = '→ View in Schedule';
+        navButton.title = 'Go to this talk in the Browse Schedule tab';
+        navButton.onclick = (e) => {
+            e.stopPropagation();
+            this.navigateToTalk(talk);
+        };
+        
         meta.appendChild(track);
         meta.appendChild(location);
         meta.appendChild(status);
+        meta.appendChild(navButton);
         
         details.appendChild(title);
         if (talk.authors) details.appendChild(authors);
@@ -1112,6 +1139,35 @@ class ConferenceSchedulePlanner {
         talkDiv.appendChild(details);
         
         return talkDiv;
+    }
+
+    navigateToTalk(talk) {
+        // Switch to Browse Schedule tab
+        this.switchTab('browse');
+        
+        // Switch to the correct day
+        if (talk.dayId) {
+            this.switchDay(talk.dayId);
+        }
+        
+        // Scroll to the talk and highlight it
+        setTimeout(() => {
+            const talkElement = document.querySelector(`[data-talk-id="${talk.id}"]`);
+            if (talkElement) {
+                // Scroll to the talk
+                talkElement.scrollIntoView({ 
+                    behavior: 'smooth', 
+                    block: 'center',
+                    inline: 'nearest'
+                });
+                
+                // Add temporary highlight
+                talkElement.classList.add('highlighted-talk');
+                setTimeout(() => {
+                    talkElement.classList.remove('highlighted-talk');
+                }, 3000);
+            }
+        }, 100);
     }
 
     addCurrentTimeIndicator() {
@@ -1281,7 +1337,21 @@ class ConferenceSchedulePlanner {
     }
 
     talksOverlap(talk1, talk2) {
-        // Parse times from talk.time field (e.g., "09:30 – 10:30" or "11:20 – 11:40")
+        // First check if talks are on the same day
+        if (talk1.dayId !== talk2.dayId) {
+            return false; // Talks on different days cannot conflict
+        }
+        
+        // Use datetime comparison if available (more accurate)
+        if (talk1.startDateTime && talk1.endDateTime && talk2.startDateTime && talk2.endDateTime) {
+            const overlap = talk1.startDateTime < talk2.endDateTime && talk2.startDateTime < talk1.endDateTime;
+            if (overlap) {
+                console.log(`Conflict detected (datetime): ${talk1.title} vs ${talk2.title} on ${talk1.dayId}`);
+            }
+            return overlap;
+        }
+        
+        // Fallback to time string parsing if datetime not available
         const time1 = this.parseTimeRange(talk1.time);
         const time2 = this.parseTimeRange(talk2.time);
         
@@ -1294,7 +1364,7 @@ class ConferenceSchedulePlanner {
         const overlap = time1.start < time2.end && time2.start < time1.end;
         
         if (overlap) {
-            console.log(`Conflict detected: ${talk1.title} (${talk1.time}) vs ${talk2.title} (${talk2.time})`);
+            console.log(`Conflict detected (time): ${talk1.title} (${talk1.time}) vs ${talk2.title} (${talk2.time}) on ${talk1.dayId}`);
         }
         
         return overlap;

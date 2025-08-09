@@ -645,6 +645,43 @@ button:disabled {
     color: white;
 }
 
+/* Navigation button in My Schedule */
+.talk-nav-button {
+    background: #6c757d;
+    color: white;
+    border: none;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    margin-left: 10px;
+    transition: background-color 0.2s ease;
+}
+
+.talk-nav-button:hover {
+    background: #5a6268;
+}
+
+/* Highlighted talk effect */
+.highlighted-talk {
+    animation: highlightPulse 3s ease-in-out;
+    box-shadow: 0 0 20px rgba(0, 123, 255, 0.8) !important;
+    border-color: #007bff !important;
+    z-index: 10;
+    position: relative;
+}
+
+@keyframes highlightPulse {
+    0%, 100% {
+        box-shadow: 0 0 20px rgba(0, 123, 255, 0.8);
+        transform: scale(1);
+    }
+    50% {
+        box-shadow: 0 0 30px rgba(0, 123, 255, 1);
+        transform: scale(1.02);
+    }
+}
+
 /* Current Time Indicator */
 .current-time-line {
     position: absolute;
