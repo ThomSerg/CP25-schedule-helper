@@ -1006,9 +1006,18 @@ class ConferenceSchedulePlanner {
             const talksContainer = document.createElement('div');
             talksContainer.className = 'schedule-talks';
             
-            dayData.talks.forEach(talk => {
+            dayData.talks.forEach((talk, index) => {
                 const talkElement = this.createMyScheduleTalk(talk);
                 talksContainer.appendChild(talkElement);
+                
+                // Add transition time info between consecutive talks
+                if (index < dayData.talks.length - 1) {
+                    const nextTalk = dayData.talks[index + 1];
+                    const transitionElement = this.createTransitionInfo(talk, nextTalk);
+                    if (transitionElement) {
+                        talksContainer.appendChild(transitionElement);
+                    }
+                }
             });
             
             dayGroup.appendChild(talksContainer);
@@ -1041,14 +1050,18 @@ class ConferenceSchedulePlanner {
         const timeInfo = document.createElement('div');
         timeInfo.className = 'talk-time-info';
         
-        const startTime = document.createElement('div');
-        startTime.className = 'talk-start-time';
-        if (talk.startDateTime) {
-            startTime.textContent = talk.startDateTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+        const timeRange = document.createElement('div');
+        timeRange.className = 'talk-time-range';
+        
+        let startTimeText, endTimeText;
+        if (talk.startDateTime && talk.endDateTime) {
+            startTimeText = talk.startDateTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            endTimeText = talk.endDateTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            timeRange.textContent = `${startTimeText} – ${endTimeText}`;
         } else if (talk.time && talk.time.includes('–')) {
-            startTime.textContent = talk.time.split(' –')[0].trim();
+            timeRange.textContent = talk.time;
         } else {
-            startTime.textContent = talk.time || 'Time TBD';
+            timeRange.textContent = talk.time || 'Time TBD';
         }
         
         const duration = document.createElement('div');
@@ -1056,14 +1069,19 @@ class ConferenceSchedulePlanner {
         if (talk.startDateTime && talk.endDateTime) {
             const durationMs = talk.endDateTime - talk.startDateTime;
             const durationMin = Math.round(durationMs / (1000 * 60));
-            duration.textContent = `${durationMin}min`;
-        } else if (talk.time) {
-            duration.textContent = talk.time;
+            duration.textContent = `${durationMin} min`;
         } else {
-            duration.textContent = 'Duration TBD';
+            // Try to parse duration from time string
+            const timeRange = this.parseTimeRange(talk.time);
+            if (timeRange) {
+                const durationMin = timeRange.end - timeRange.start;
+                duration.textContent = `${durationMin} min`;
+            } else {
+                duration.textContent = 'Duration TBD';
+            }
         }
         
-        timeInfo.appendChild(startTime);
+        timeInfo.appendChild(timeRange);
         timeInfo.appendChild(duration);
         
         // Talk details
@@ -1129,6 +1147,60 @@ class ConferenceSchedulePlanner {
         talkDiv.appendChild(details);
         
         return talkDiv;
+    }
+
+    createTransitionInfo(currentTalk, nextTalk) {
+        // Only create transition info if we have datetime information for both talks
+        if (!currentTalk.endDateTime || !nextTalk.startDateTime) {
+            return null;
+        }
+        
+        const transitionMs = nextTalk.startDateTime - currentTalk.endDateTime;
+        const transitionMin = Math.round(transitionMs / (1000 * 60));
+        
+        // Don't show transition for negative values (overlapping talks) 
+        // or very long gaps (probably different sessions)
+        if (transitionMin < 0 || transitionMin > 180) {
+            return null;
+        }
+        
+        const transitionDiv = document.createElement('div');
+        transitionDiv.className = 'transition-info';
+        
+        // Add warning class for very short transitions
+        if (transitionMin < 5) {
+            transitionDiv.classList.add('transition-warning');
+        } else if (transitionMin < 15) {
+            transitionDiv.classList.add('transition-caution');
+        }
+        
+        let transitionText;
+        let locationNote = '';
+        
+        if (transitionMin === 0) {
+            transitionText = 'Back-to-back sessions';
+        } else if (transitionMin < 60) {
+            transitionText = `${transitionMin} min break`;
+        } else {
+            const hours = Math.floor(transitionMin / 60);
+            const mins = transitionMin % 60;
+            transitionText = mins > 0 ? `${hours}h ${mins}min break` : `${hours}h break`;
+        }
+        
+        // Add location change warning if different locations
+        if (currentTalk.location && nextTalk.location && 
+            currentTalk.location.trim() !== nextTalk.location.trim()) {
+            locationNote = ` • Move from ${currentTalk.location} to ${nextTalk.location}`;
+            if (transitionMin < 10) {
+                locationNote += ' ⚠️';
+            }
+        }
+        
+        transitionDiv.innerHTML = `
+            <div class="transition-time">${transitionText}${locationNote}</div>
+        `;
+        
+        return transitionDiv;
     }
 
     navigateToTalk(talk) {
