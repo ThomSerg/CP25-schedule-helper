@@ -11,6 +11,7 @@ class ConferenceSchedulePlanner {
         this.initializeEventListeners();
         this.loadSchedules();
         this.updateScheduleSelector();
+        this.checkForSharedSchedule();
     }
 
     initializeEventListeners() {
@@ -26,6 +27,9 @@ class ConferenceSchedulePlanner {
         // Schedule controls
         document.getElementById('clearBtn').addEventListener('click', () => this.clearSelections());
         document.getElementById('timelineToggle').addEventListener('click', () => this.toggleTimeline());
+        document.getElementById('shareBtn').addEventListener('click', () => this.shareSchedule());
+        document.getElementById('exportBtn').addEventListener('click', () => this.exportSchedule());
+        document.getElementById('importScheduleBtn').addEventListener('click', () => this.importScheduleFromFile());
         
         // File input
         document.getElementById('htmlFile').addEventListener('change', (e) => {
@@ -1912,6 +1916,395 @@ class ConferenceSchedulePlanner {
         setTimeout(() => {
             statusElement.style.display = 'none';
         }, 5000);
+    }
+
+    checkForSharedSchedule() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const sharedData = urlParams.get('schedule');
+        
+        if (sharedData) {
+            try {
+                const decodedData = this.decodeSharedSchedule(sharedData);
+                this.importSharedSchedule(decodedData);
+            } catch (error) {
+                console.error('Error loading shared schedule:', error);
+                this.showStatus('Invalid or corrupted shared schedule link', 'error');
+            }
+        }
+    }
+
+    decodeSharedSchedule(encodedData) {
+        try {
+            // Try to decode base64 and decompress
+            const compressed = atob(encodedData);
+            const decompressed = this.decompress(compressed);
+            return JSON.parse(decompressed);
+        } catch (error) {
+            console.error('Decoding failed, trying fallback:', error);
+            try {
+                // Fallback: try simple base64 decode without decompression
+                const decoded = atob(encodedData);
+                return JSON.parse(decoded);
+            } catch (fallbackError) {
+                console.error('Fallback decoding also failed:', fallbackError);
+                throw new Error('Unable to decode shared schedule data');
+            }
+        }
+    }
+
+    encodeSharedSchedule(data) {
+        try {
+            // Compress and encode to base64
+            const jsonString = JSON.stringify(data);
+            const compressed = this.compress(jsonString);
+            return btoa(compressed);
+        } catch (error) {
+            console.error('Encoding failed:', error);
+            // Fallback to simple base64 encoding without compression
+            return btoa(JSON.stringify(data));
+        }
+    }
+
+    compress(str) {
+        try {
+            // Simple compression using string replacements for common patterns
+            return str
+                .replace(/{"id"/g, '{"i"')
+                .replace(/,"title"/g, ',"t"')
+                .replace(/,"authors"/g, ',"a"')
+                .replace(/,"time"/g, ',"tm"')
+                .replace(/,"track"/g, ',"tr"')
+                .replace(/,"location"/g, ',"l"')
+                .replace(/,"dayId"/g, ',"d"')
+                .replace(/,"startDateTime"/g, ',"s"')
+                .replace(/,"endDateTime"/g, ',"e"');
+        } catch (error) {
+            console.error('Compression failed:', error);
+            return str;
+        }
+    }
+
+    decompress(str) {
+        // Reverse the compression
+        return str
+            .replace(/{"i"/g, '{"id"')
+            .replace(/,"t"/g, ',"title"')
+            .replace(/,"a"/g, ',"authors"')
+            .replace(/,"tm"/g, ',"time"')
+            .replace(/,"tr"/g, ',"track"')
+            .replace(/,"l"/g, ',"location"')
+            .replace(/,"d"/g, ',"dayId"')
+            .replace(/,"s"/g, ',"startDateTime"')
+            .replace(/,"e"/g, ',"endDateTime"');
+    }
+
+    shareSchedule() {
+        if (!this.currentScheduleId || this.selectedTalks.size === 0) {
+            this.showStatus('No schedule or talks selected to share', 'error');
+            return;
+        }
+
+        const schedule = this.schedules.get(this.currentScheduleId);
+        const selectedTalks = Array.from(this.selectedTalks)
+            .map(id => this.findTalkById(id))
+            .filter(talk => talk);
+
+        const shareData = {
+            scheduleName: schedule.name,
+            talks: selectedTalks.map(talk => ({
+                id: talk.id,
+                title: talk.title,
+                authors: talk.authors || '',
+                time: talk.time,
+                track: talk.track,
+                location: talk.location,
+                dayId: talk.dayId,
+                startDateTime: talk.startDateTime ? talk.startDateTime.toISOString() : null,
+                endDateTime: talk.endDateTime ? talk.endDateTime.toISOString() : null
+            }))
+        };
+
+        try {
+            const encoded = this.encodeSharedSchedule(shareData);
+            const shareUrl = `${window.location.origin}${window.location.pathname}?schedule=${encoded}`;
+            
+            // Show modal with share options
+            this.showShareModal(shareUrl, shareData);
+        } catch (error) {
+            console.error('Error creating share URL:', error);
+            this.showStatus('Error creating shareable link', 'error');
+        }
+    }
+
+    showShareModal(shareUrl, shareData) {
+        // Create modal overlay
+        const modal = document.createElement('div');
+        modal.className = 'share-modal-overlay';
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        `;
+
+        const modalContent = document.createElement('div');
+        modalContent.className = 'share-modal-content';
+        modalContent.style.cssText = `
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        `;
+
+        modalContent.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h3 style="margin: 0;">Share Your Schedule</h3>
+                <button id="closeShareModal" style="background: none; border: none; font-size: 20px; cursor: pointer;">&times;</button>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <h4>Schedule: ${shareData.scheduleName}</h4>
+                <p>${shareData.talks.length} selected talks</p>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">Shareable URL:</label>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="shareUrl" value="${shareUrl}" readonly style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                    <button id="copyUrlBtn" style="padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Copy</button>
+                </div>
+                <small style="color: #666; margin-top: 5px; display: block;">Share this URL with others to let them see your selected talks</small>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <button id="downloadScheduleBtn" style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">Download Schedule File</button>
+                <small style="color: #666; margin-left: 10px;">Save as file for backup or sharing</small>
+            </div>
+            
+            <div style="border-top: 1px solid #eee; padding-top: 15px;">
+                <h5>Selected Talks Preview:</h5>
+                <div style="max-height: 200px; overflow-y: auto; border: 1px solid #eee; padding: 10px; border-radius: 4px; background: #f8f9fa;">
+                    ${shareData.talks.map(talk => `
+                        <div style="margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid #eee;">
+                            <strong>${talk.title}</strong><br>
+                            <small>${talk.time || 'Time TBD'} • ${talk.track} • ${talk.location}</small>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+
+        modal.appendChild(modalContent);
+        document.body.appendChild(modal);
+
+        // Event listeners
+        document.getElementById('closeShareModal').onclick = () => document.body.removeChild(modal);
+        modal.onclick = (e) => {
+            if (e.target === modal) document.body.removeChild(modal);
+        };
+
+        document.getElementById('copyUrlBtn').onclick = async () => {
+            const urlInput = document.getElementById('shareUrl');
+            const copyBtn = document.getElementById('copyUrlBtn');
+            
+            try {
+                // Try modern Clipboard API first
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(urlInput.value);
+                } else {
+                    // Fallback for older browsers or non-secure contexts
+                    urlInput.select();
+                    urlInput.setSelectionRange(0, 99999); // For mobile devices
+                    document.execCommand('copy');
+                }
+                
+                copyBtn.textContent = 'Copied!';
+                setTimeout(() => {
+                    copyBtn.textContent = 'Copy';
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy: ', err);
+                // Fallback: select the text so user can manually copy
+                urlInput.select();
+                urlInput.setSelectionRange(0, 99999);
+                copyBtn.textContent = 'Select & Copy';
+                setTimeout(() => {
+                    copyBtn.textContent = 'Copy';
+                }, 3000);
+            }
+        };
+
+        document.getElementById('downloadScheduleBtn').onclick = () => {
+            this.downloadScheduleFile(shareData);
+        };
+    }
+
+    downloadScheduleFile(shareData) {
+        const dataStr = JSON.stringify(shareData, null, 2);
+        const dataBlob = new Blob([dataStr], {type: 'application/json'});
+        const url = URL.createObjectURL(dataBlob);
+        
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${shareData.scheduleName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_schedule.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }
+
+    exportSchedule() {
+        if (!this.currentScheduleId || this.selectedTalks.size === 0) {
+            this.showStatus('No schedule or talks selected to export', 'error');
+            return;
+        }
+
+        const schedule = this.schedules.get(this.currentScheduleId);
+        const selectedTalks = Array.from(this.selectedTalks)
+            .map(id => this.findTalkById(id))
+            .filter(talk => talk);
+
+        const exportData = {
+            scheduleName: schedule.name,
+            exportedAt: new Date().toISOString(),
+            talks: selectedTalks.map(talk => ({
+                id: talk.id,
+                title: talk.title,
+                authors: talk.authors || '',
+                time: talk.time,
+                track: talk.track,
+                location: talk.location,
+                dayId: talk.dayId,
+                startDateTime: talk.startDateTime ? talk.startDateTime.toISOString() : null,
+                endDateTime: talk.endDateTime ? talk.endDateTime.toISOString() : null
+            }))
+        };
+
+        this.downloadScheduleFile(exportData);
+        this.showStatus(`Exported ${selectedTalks.length} talks to file`, 'success');
+    }
+
+    importScheduleFromFile() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const scheduleData = JSON.parse(e.target.result);
+                        this.importSharedSchedule(scheduleData);
+                    } catch (error) {
+                        console.error('Error parsing schedule file:', error);
+                        this.showStatus('Invalid schedule file format', 'error');
+                    }
+                };
+                reader.readAsText(file);
+            }
+        };
+        input.click();
+    }
+
+    importSharedSchedule(scheduleData) {
+        if (!scheduleData || !scheduleData.talks || !Array.isArray(scheduleData.talks)) {
+            this.showStatus('Invalid schedule data format', 'error');
+            return;
+        }
+
+        // Check if we have a current schedule to import into
+        if (!this.currentScheduleId) {
+            this.showStatus('Please select or create a schedule first before importing talks', 'error');
+            return;
+        }
+
+        const schedule = this.schedules.get(this.currentScheduleId);
+        if (!schedule) {
+            this.showStatus('Current schedule not found', 'error');
+            return;
+        }
+
+        // Find matching talks in the current schedule
+        const importedTalkIds = new Set();
+        let matchedTalks = 0;
+        let unmatchedTalks = 0;
+
+        scheduleData.talks.forEach(sharedTalk => {
+            // Try to find matching talk by title and time
+            const matchingTalk = this.findTalkByTitleAndTime(sharedTalk.title, sharedTalk.time);
+            
+            if (matchingTalk) {
+                importedTalkIds.add(matchingTalk.id);
+                matchedTalks++;
+            } else {
+                unmatchedTalks++;
+                console.log('Could not match talk:', sharedTalk.title, sharedTalk.time);
+            }
+        });
+
+        // Update selections
+        if (matchedTalks > 0) {
+            // Clear existing selections and add imported ones
+            this.selectedTalks = importedTalkIds;
+            this.saveSelections();
+            this.applySelections();
+            this.checkConflicts();
+            this.updateMySchedule();
+            
+            let message = `Imported ${matchedTalks} talks`;
+            if (unmatchedTalks > 0) {
+                message += ` (${unmatchedTalks} talks could not be matched in current schedule)`;
+            }
+            this.showStatus(message, matchedTalks > 0 ? 'success' : 'warning');
+            
+            // Switch to schedule view
+            this.switchTab('schedule');
+        } else {
+            this.showStatus('No matching talks found in current schedule', 'error');
+        }
+    }
+
+    findTalkByTitleAndTime(title, time) {
+        if (!this.currentScheduleId) return null;
+        
+        const schedule = this.schedules.get(this.currentScheduleId);
+        if (!schedule) return null;
+
+        for (const day of schedule.data) {
+            for (const timeSlot of day.timeSlots) {
+                for (const event of timeSlot.events) {
+                    const talk = event.talks.find(t => 
+                        t.title.toLowerCase() === title.toLowerCase() &&
+                        t.time === time
+                    );
+                    if (talk) return talk;
+                }
+            }
+        }
+
+        // Fallback: try matching by title only
+        for (const day of schedule.data) {
+            for (const timeSlot of day.timeSlots) {
+                for (const event of timeSlot.events) {
+                    const talk = event.talks.find(t => 
+                        t.title.toLowerCase() === title.toLowerCase()
+                    );
+                    if (talk) return talk;
+                }
+            }
+        }
+        
+        return null;
     }
 }
 

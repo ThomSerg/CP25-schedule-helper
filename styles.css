@@ -154,6 +154,30 @@ button:disabled {
     background-color: #c82333;
 }
 
+#shareBtn {
+    background-color: #28a745;
+}
+
+#shareBtn:hover {
+    background-color: #1e7e34;
+}
+
+#exportBtn {
+    background-color: #17a2b8;
+}
+
+#exportBtn:hover {
+    background-color: #117a8b;
+}
+
+#importScheduleBtn {
+    background-color: #6f42c1;
+}
+
+#importScheduleBtn:hover {
+    background-color: #5a32a3;
+}
+
 #importStatus {
     margin-top: 10px;
     padding: 10px;
