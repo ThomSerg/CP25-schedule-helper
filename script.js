@@ -27,9 +27,9 @@ class ConferenceSchedulePlanner {
         // Schedule controls
         document.getElementById('clearBtn').addEventListener('click', () => this.clearSelections());
         document.getElementById('timelineToggle').addEventListener('click', () => this.toggleTimeline());
-        document.getElementById('shareBtn').addEventListener('click', () => this.shareSchedule());
-        document.getElementById('exportBtn').addEventListener('click', () => this.exportSchedule());
-        document.getElementById('importScheduleBtn').addEventListener('click', () => this.importScheduleFromFile());
+        
+        // Add sharing controls with error handling
+        this.attachSharingListeners();
         
         // File input
         document.getElementById('htmlFile').addEventListener('change', (e) => {
@@ -45,6 +45,38 @@ class ConferenceSchedulePlanner {
         document.querySelectorAll('.tab-button').forEach(button => {
             button.addEventListener('click', (e) => this.switchTab(e.target.dataset.tab));
         });
+    }
+
+    attachSharingListeners() {
+        // Try to attach sharing event listeners with error handling
+        try {
+            const shareBtn = document.getElementById('shareBtn');
+            const exportBtn = document.getElementById('exportBtn');
+            const importBtn = document.getElementById('importScheduleBtn');
+            
+            if (shareBtn) {
+                shareBtn.addEventListener('click', () => this.shareSchedule());
+                console.log('Share button listener attached');
+            } else {
+                console.warn('Share button not found');
+            }
+            
+            if (exportBtn) {
+                exportBtn.addEventListener('click', () => this.exportSchedule());
+                console.log('Export button listener attached');
+            } else {
+                console.warn('Export button not found');
+            }
+            
+            if (importBtn) {
+                importBtn.addEventListener('click', () => this.importScheduleFromFile());
+                console.log('Import schedule button listener attached');
+            } else {
+                console.warn('Import schedule button not found');
+            }
+        } catch (error) {
+            console.error('Error attaching sharing listeners:', error);
+        }
     }
 
     loadSchedules() {
@@ -108,6 +140,8 @@ class ConferenceSchedulePlanner {
             document.getElementById('importSection').style.display = 'none';
             document.getElementById('scheduleView').style.display = 'block';
             this.loadCurrentSchedule();
+            // Ensure sharing listeners are attached when schedule view is shown
+            setTimeout(() => this.attachSharingListeners(), 100);
         } else {
             document.getElementById('importSection').style.display = 'none';
             document.getElementById('scheduleView').style.display = 'none';
